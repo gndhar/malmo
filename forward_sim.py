@@ -27,16 +27,10 @@ c[10] = 0.11
 c[12] = 0.08
 
 
-def propagate_delta_r_r(r_in_idx: tuple[int, int]) -> np.ndarray:
-    r_in = np.zeros((N, N), dtype=np.float64)
-    r_in[r_in_idx[0], r_in_idx[1]] = 1.0
-    return propagate_r_r(r_in)
-
-
-def propagate_delta_k_r(k_in_idx: tuple[int, int]) -> np.ndarray:
-    k_in = np.zeros((N, N), dtype=np.float64)
-    k_in[k_in_idx[0], k_in_idx[1]] = 1.0
-    return propagate_k_r(k_in)
+def propagate_r_r(r_in: np.ndarray) -> np.ndarray:
+    r_incident = input_path(r_in)
+    r_reflected = r_incident * obj
+    return output_path(r_reflected)
 
 
 def propagate_k_r(k_in: np.ndarray) -> np.ndarray:
@@ -45,21 +39,15 @@ def propagate_k_r(k_in: np.ndarray) -> np.ndarray:
     return output_path(r_reflected)
 
 
-def propagate_r_r(r_in: np.ndarray) -> np.ndarray:
-    r_incident = input_path(r_in)
-    r_reflected = r_incident * obj
-    return output_path(r_reflected)
-
-
-def input_path_k(k_in: np.ndarray) -> np.ndarray:
+def input_path(r_in: np.ndarray) -> np.ndarray:
     input_abberations = generate_abberations(6, c)
+    k_in = fft2(r_in)
     k_in_clipped = k_in * input_abberations
     return ifft2(k_in_clipped)  # airy disk
 
 
-def input_path(r_in: np.ndarray) -> np.ndarray:
+def input_path_k(k_in: np.ndarray) -> np.ndarray:
     input_abberations = generate_abberations(6, c)
-    k_in = fft2(r_in)
     k_in_clipped = k_in * input_abberations
     return ifft2(k_in_clipped)  # airy disk
 
@@ -71,10 +59,18 @@ def output_path(r: np.ndarray) -> np.ndarray:  # r = airy_disk * obj
     return ifft2(k_clipped)  # r_out
 
 
-r_out = propagate_r_r(r_in)
+if __name__ == "__main__":
+    # r_out = propagate_r_r(r_in)
 
-import matplotlib.pyplot as plt
+    k_in = np.zeros((config.N, config.N))
+    k_in[31, 12] = 1.0
 
-plt.imshow(np.abs(r_out * r_in).sum(axis=(0, 1)), extent=(-1, 1, -1, 1))
-plt.colorbar()
-plt.show()
+    r_out = propagate_k_r(k_in)
+
+    import matplotlib.pyplot as plt
+
+    plt.subplot(1, 2, 1)
+    plt.imshow(k_in)
+    plt.subplot(1, 2, 2)
+    plt.imshow(np.abs(r_out))
+    plt.show()
