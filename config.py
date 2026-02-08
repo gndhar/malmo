@@ -1,8 +1,10 @@
 class Config:
-    N: int = 64
+    N: int = 128
     wavelength: float = 1.0
     na: float = 1.0
     dr: float = 1.0
+
+    zern_n: int = 6
 
     def __init__(self) -> None:
         self.dk = self.wavelength / 2 / self.na

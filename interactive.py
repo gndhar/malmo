@@ -18,7 +18,7 @@ def f(x, y):
 
     r_reflected = np.abs(forward_sim.input_path(r_in) * forward_sim.obj)
 
-    abberations = np.angle(generate_abberations(6, forward_sim.c))
+    abberations = np.angle(generate_abberations(forward_sim.c_in))
 
     return (
         r_in,
@@ -40,7 +40,7 @@ def f_k(x, y):
     r_incident = forward_sim.input_path_k(k_in)
     r_reflected = r_incident * forward_sim.obj
 
-    abberations = np.angle(forward_sim.generate_abberations(6, forward_sim.c))
+    abberations = np.angle(forward_sim.generate_abberations(forward_sim.c_in))
 
     return (
         k_in,
