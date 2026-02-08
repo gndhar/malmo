@@ -7,10 +7,11 @@ N: int = config.N
 x = y = np.linspace(-1, 1, N)
 xv, yv = np.meshgrid(x, y)
 
+cart = RZern(config.zern_n)
+cart.make_cart_grid(xv, yv)
 
-def generate_abberations(n: int, coeffs: list[float]) -> np.ndarray:
-    cart = RZern(n)
-    cart.make_cart_grid(xv, yv)
+
+def generate_abberations(coeffs: list[float]) -> np.ndarray:
     c = np.zeros(cart.nk)
 
     coeff_count: int = min(len(coeffs), cart.nk)
