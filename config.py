@@ -1,5 +1,5 @@
 class Config:
-    N: int = 128
+    N: int = 64
     wavelength: float = 1.0
     na: float = 1.0
     dr: float = 1.0
