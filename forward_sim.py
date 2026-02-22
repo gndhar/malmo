@@ -2,22 +2,13 @@ import numpy as np
 from fft import *
 from config import config
 from obj import obj
-import zern
 from zern import generate_abberations
-
-# c = [0.0] * 13
-#
-# c[3] = 0.50
-# c[4] = 0.15
-# c[5] = 0.12
-# c[6] = 0.18
-# c[7] = 0.14
-# c[10] = 0.11
-# c[12] = 0.08
 
 c_in = list(np.random.random(20))
 c_out = list(np.random.random(20))
-print(zern.cart.nk)
+
+input_abberations = generate_abberations(c_in)
+output_abberations = generate_abberations(c_out)
 
 
 def propagate_r_r(r_in: np.ndarray) -> np.ndarray:
@@ -39,33 +30,33 @@ def propagate_k_k(k_in: np.ndarray) -> np.ndarray:
 
 
 def input_path(r_in: np.ndarray) -> np.ndarray:
-    input_abberations = generate_abberations(c_in)
     k_in = fft2(r_in)
     k_in_clipped = k_in * input_abberations
     return ifft2(k_in_clipped)  # airy disk for delta input
 
 
 def input_path_k(k_in: np.ndarray) -> np.ndarray:
-    input_abberations = generate_abberations(c_in)
     k_in_clipped = k_in * input_abberations
     return ifft2(k_in_clipped)  # airy disk
 
 
 def output_path(r: np.ndarray) -> np.ndarray:  # r = airy_disk * obj
-    output_abberations = generate_abberations(c_out)
     k = fft2(r)
     k_clipped = k * output_abberations
     return ifft2(k_clipped)  # r_out
 
 
 def output_path_k(r: np.ndarray) -> np.ndarray:  # r = airy_disk * obj
-    output_abberations = generate_abberations(c_out)
     k = fft2(r)
     k_clipped = k * output_abberations
     return k_clipped  # k_out
 
 
 if __name__ == "__main__":
+    import zern
+
+    print(zern.cart.nk)
+
     N = config.N
     r_in = np.zeros((N, N, N, N), dtype=np.float64)
 
