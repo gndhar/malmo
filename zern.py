@@ -2,9 +2,7 @@ from zernike import RZern
 import numpy as np
 from config import config
 
-N: int = config.N
-
-x = y = np.linspace(-1, 1, N)
+x = y = np.linspace(-2.0, 2.0, 2 * config.N)
 xv, yv = np.meshgrid(x, y)
 
 cart = RZern(config.zern_n)

@@ -1,78 +1,62 @@
 import numpy as np
-from fft import *
-from config import config
+import fft
 from obj import obj
 from zern import generate_abberations
+import zern
+import enum
+from config import config
 
-c_in = list(np.random.random(20))
-c_out = list(np.random.random(20))
+c_in = list(np.random.random(zern.cart.nk))
+c_out = list(np.random.random(zern.cart.nk))
+# c_in = list(np.zeros((zern.cart.nk), dtype=float))
+# c_out = list(np.zeros((zern.cart.nk), dtype=float))
 
 input_abberations = generate_abberations(c_in)
 output_abberations = generate_abberations(c_out)
 
 
-def propagate_r_r(r_in: np.ndarray) -> np.ndarray:
-    r_incident = input_path(r_in)
-    r_reflected = r_incident * obj
-    return output_path(r_reflected)
+class Space(enum.Enum):
+    K = enum.auto()
+    R = enum.auto()
 
 
-def propagate_k_r(k_in: np.ndarray) -> np.ndarray:
-    r_incident = input_path_k(k_in)
-    r_reflected = r_incident * obj
-    return output_path(r_reflected)
+class Signal:
+    def __init__(self, data: np.ndarray, space: Space):
+        self.space = space
+        if space == Space.R:
+            self.r = data
+            self.k = fft.fft2(data)
+        elif space == Space.K:
+            self.k = data
+            self.r = fft.ifft2(data)
 
 
-def propagate_k_k(k_in: np.ndarray) -> np.ndarray:
-    r_incident = input_path_k(k_in)
-    r_reflected = r_incident * obj
-    return output_path_k(r_reflected)
+def simulate() -> tuple[Signal, Signal]:
+    global input_abberations, output_abberations
 
+    N = config.N
 
-def input_path(r_in: np.ndarray) -> np.ndarray:
-    k_in = fft2(r_in)
-    k_in_clipped = k_in * input_abberations
-    return ifft2(k_in_clipped)  # airy disk for delta input
+    k_outs = np.zeros((N, N, N, N), dtype=complex)
+    k_ins = np.zeros((N, N, N, N), dtype=complex)
 
+    for x in range(N):
+        for y in range(N):
+            k_in_padded = np.zeros((N * 2, N * 2))
+            k_in_padded[N // 2 + x, N // 2 + y] = 1.0
 
-def input_path_k(k_in: np.ndarray) -> np.ndarray:
-    k_in_clipped = k_in * input_abberations
-    return ifft2(k_in_clipped)  # airy disk
+            # store inputs
+            k_ins[x, y] = k_in_padded[N // 2 : N // 2 + N, N // 2 : N // 2 + N]
 
+            s_in = Signal(k_in_padded, Space.K)
+            s_inc = Signal(s_in.k * input_abberations, Space.K)
+            s_ref = Signal(s_inc.r * obj, Space.R)
+            s_out = Signal(s_ref.k * output_abberations, Space.K)
 
-def output_path(r: np.ndarray) -> np.ndarray:  # r = airy_disk * obj
-    k = fft2(r)
-    k_clipped = k * output_abberations
-    return ifft2(k_clipped)  # r_out
+            # store outputs
+            k_outs[x, y] = s_out.k[N // 2 : N // 2 + N, N // 2 : N // 2 + N]
 
-
-def output_path_k(r: np.ndarray) -> np.ndarray:  # r = airy_disk * obj
-    k = fft2(r)
-    k_clipped = k * output_abberations
-    return k_clipped  # k_out
+    return Signal(k_ins, Space.K), Signal(k_outs, Space.K)
 
 
 if __name__ == "__main__":
-    import zern
-
-    print(zern.cart.nk)
-
-    N = config.N
-    r_in = np.zeros((N, N, N, N), dtype=np.float64)
-
-    idx = np.arange(N)
-    r_in[idx[:, None], idx, idx[:, None], idx] = 1.0
-    # r_out = propagate_r_r(r_in)
-
-    k_in = np.zeros((config.N, config.N))
-    k_in[31, 12] = 1.0
-
-    r_out = propagate_k_r(k_in)
-
-    import matplotlib.pyplot as plt
-
-    plt.subplot(1, 2, 1)
-    plt.imshow(k_in)
-    plt.subplot(1, 2, 2)
-    plt.imshow(np.abs(r_out))
-    plt.show()
+    ...
