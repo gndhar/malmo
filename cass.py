@@ -33,9 +33,10 @@ if __name__ == "__main__":
     cass_r, cass_k = cass()
 
     import matplotlib.pyplot as plt
+    import obj
 
     plt.subplot(1, 2, 1)
     plt.imshow(np.abs(cass_r))
     plt.subplot(1, 2, 2)
-    plt.imshow(np.abs(cass_k) * np.angle(cass_r) / np.max(np.abs(cass_k)))
+    plt.imshow(obj.obj)
     plt.show()
