@@ -31,31 +31,47 @@ class Signal:
             self.r = fft.ifft2(data)
 
 
-def simulate(c_in=c_in, c_out=c_out) -> tuple[Signal, Signal]:
+def simulate_optimized(c_in=c_in, c_out=c_out) -> tuple[Signal, Signal]:
+    N = config.N
+
+    # 1. Generate aberrations once for the whole batch
     input_abberations = generate_abberations(c_in)
     output_abberations = generate_abberations(c_out)
 
-    N = config.N
+    # 2. Vectorized Input Grid (The "Delta" impulses)
+    # Shape: (N, N, 2N, 2N)
+    k_in_batch = np.zeros((N, N, 2 * N, 2 * N), dtype=complex)
 
-    k_outs = np.zeros((N, N, N, N), dtype=complex)
-    k_ins = np.zeros((N, N, N, N), dtype=complex)
+    # Broadcast the indices to place the 1.0s without a loop
+    x_idx = np.arange(N)[:, None]  # Column vector for broadcasting (N, 1)
+    y_idx = np.arange(N)  # Row vector for broadcasting (N,)
+    k_in_batch[x_idx, y_idx, (N // 2) + x_idx, (N // 2) + y_idx] = 1.0
 
-    for x in range(N):
-        for y in range(N):
-            k_in_padded = np.zeros((N * 2, N * 2))
-            k_in_padded[N // 2 + x, N // 2 + y] = 1.0
+    # 3. Apply input aberrations in K-space
+    # Broadcasting handles (N, N, 2N, 2N) * (2N, 2N)
+    s_inc_k = k_in_batch * input_abberations
 
-            # store inputs
-            k_ins[x, y] = k_in_padded[N // 2 : N // 2 + N, N // 2 : N // 2 + N]
+    # 4. Transform to Real Space (Batch IFFT)
+    # Your custom fft.ifft2 uses axes=(-2, -1), so it applies the 2D IFFT
+    # to all N*N matrices simultaneously.
+    s_inc_r = fft.ifft2(s_inc_k)
 
-            s_in = Signal(k_in_padded, Space.K)
-            s_inc = Signal(s_in.k * input_abberations, Space.K)
-            s_ref = Signal(s_inc.r * obj, Space.R)
-            s_out = Signal(s_ref.k * output_abberations, Space.K)
+    # 5. Interact with Object in Real Space
+    s_ref_r = s_inc_r * obj
 
-            # store outputs
-            k_outs[x, y] = s_out.k[N // 2 : N // 2 + N, N // 2 : N // 2 + N]
+    # 6. Transform back to K-space (Batch FFT)
+    s_ref_k = fft.fft2(s_ref_r)
 
+    # 7. Apply output aberrations
+    s_out_k = s_ref_k * output_abberations
+
+    # 8. Crop to N x N
+    k_ins = k_in_batch[:, :, N // 2 : N // 2 + N, N // 2 : N // 2 + N]
+    k_outs = s_out_k[:, :, N // 2 : N // 2 + N, N // 2 : N // 2 + N]
+
+    # Return as Signals.
+    # Because your Signal class also relies on fft.ifft2, passing the 4D
+    # cropped arrays will correctly generate the 4D real-space counterparts.
     return Signal(k_ins, Space.K), Signal(k_outs, Space.K)
 
 
@@ -163,5 +179,55 @@ def generate_visual_simulation():
     # return Signal(k_ins, Space.K), Signal(k_outs, Space.K)
 
 
+def simulate_batched(c_in=c_in, c_out=c_out):
+    N = config.N
+
+    # Generate aberrations once
+    input_abberations = generate_abberations(c_in)
+    output_abberations = generate_abberations(c_out)
+
+    k_outs = np.zeros((N, N, N, N), dtype=complex)
+    k_ins = np.zeros((N, N, N, N), dtype=complex)
+
+    # Mini-batch over the 'x' dimension.
+    # This reduces loop overhead by 64x without blowing up RAM.
+    for x in range(N):
+        # 1. Create a batch for just ONE row: Shape (N, 2N, 2N)
+        k_in_batch = np.zeros((N, 2 * N, 2 * N), dtype=complex)
+
+        # Place the delta impulses across the 'y' dimension
+        y_idx = np.arange(N)
+        k_in_batch[y_idx, (N // 2) + x, (N // 2) + y_idx] = 1.0
+
+        # 2. Vectorized Forward Pass (operating on N arrays simultaneously)
+        s_inc_k = k_in_batch * input_abberations
+        s_inc_r = fft.ifft2(s_inc_k)
+        s_ref_r = s_inc_r * obj
+        s_ref_k = fft.fft2(s_ref_r)
+        s_out_k = s_ref_k * output_abberations
+
+        # 3. Crop and store directly into the output arrays
+        k_ins[x, :] = k_in_batch[:, N // 2 : N // 2 + N, N // 2 : N // 2 + N]
+        k_outs[x, :] = s_out_k[:, N // 2 : N // 2 + N, N // 2 : N // 2 + N]
+
+    # Return final N x N x N x N signals
+    return Signal(k_ins, Space.K), Signal(k_outs, Space.K)
+
+
 if __name__ == "__main__":
-    generate_visual_simulation()
+    # generate_visual_simulation()
+    import time
+
+    t0 = time.time()
+    for _ in range(10):
+        simulate()
+    print("done 1")
+    t1 = time.time()
+    for _ in range(10):
+        simulate_optimized()
+    print("done 2")
+    t2 = time.time()
+    for _ in range(10):
+        simulate_batched()
+    print("done 3")
+    print(f"{t1 - t0} {t2 - t1} {time.time() - t2}")
