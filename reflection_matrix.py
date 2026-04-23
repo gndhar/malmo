@@ -115,7 +115,15 @@ def generate_R(s_in: Signal, s_out: Signal):
     B = np.column_stack([r_out[y, x].flatten() for y, x in idxs])
 
     R = B @ A.conj().T
-    return R, A, B
+
+    k_in = s_in.k
+    k_out = s_out.k
+
+    A_k = np.column_stack([k_in[y, x].flatten() for y, x in idxs])
+    B_k = np.column_stack([k_out[y, x].flatten() for y, x in idxs])
+
+    R_k = B_k @ A_k.conj().T
+    return R, A, B, R_k
 
 
 def generate_Rk(s_in: Signal, s_out: Signal):

@@ -68,7 +68,7 @@ def apply_TH(y, Rk_flat, mapping, N):
     return res
 
 
-def power_iteration(Rk_flat, mapping, N, max_PI_num):
+def power_iteration(Rk_flat, mapping, N, max_PI_num, clipping):
     """
     Algorithm 3: Find the dominant right singular vector of R̃_Δk.
 
@@ -87,6 +87,7 @@ def power_iteration(Rk_flat, mapping, N, max_PI_num):
     for _ in range(max_PI_num):
         tmp = apply_T(v, Rk_flat, mapping, N)  # R̃_Δk @ v
         v = apply_TH(tmp, Rk_flat, mapping, N)  # R̃_Δk^H @ (R̃_Δk @ v)
+        v *= clipping
         v = v / (np.abs(v) + 1e-12)  # phase-only normalisation
 
     return v  # ≈ e^{-iθ_in}
@@ -134,10 +135,20 @@ def class_algorithm(Rk, N, max_iteration_number=5, max_PI_num=10):
     ab_in = np.ones(N * N, dtype=complex)
     ab_out = np.ones(N * N, dtype=complex)
 
-    for _ in range(max_iteration_number):
+    clipping = np.zeros((N, N))
+    cx = N // 2
+    cy = N // 2
+    r = N // 2 - 1
+    y_idx, x_idx = np.ogrid[:N, :N]
+    clipping[(y_idx - cy) ** 2 + (x_idx - cx) ** 2 <= r**2] = 1.0
+    clipping = clipping.flatten()
+
+    import tqdm
+
+    for _ in tqdm.tqdm(range(max_iteration_number)):
 
         # PI gives e^{-iθ_in}; multiply columns directly
-        input_phase = power_iteration(Rk_flat, mapping, N, max_PI_num)
+        input_phase = power_iteration(Rk_flat, mapping, N, max_PI_num, clipping)
         ab_in *= input_phase  # accumulate
 
         Rk_flat = Rk_flat * input_phase[None, :]  # col j *= e^{-iθ_in(j)}
@@ -146,7 +157,7 @@ def class_algorithm(Rk, N, max_iteration_number=5, max_PI_num=10):
         # Reuse the same mapping (NOT mapping.T) — same Δk geometry.
         # PI gives e^{-iθ_out}; multiply rows directly (no conj).
         Rk_trans = Rk_flat.T
-        output_phase = power_iteration(Rk_trans, mapping, N, max_PI_num)
+        output_phase = power_iteration(Rk_trans, mapping, N, max_PI_num, clipping)
         ab_out *= output_phase  # accumulate
 
         Rk_flat = Rk_flat * output_phase[:, None]  # row i *= e^{-iθ_out(i)}
@@ -163,10 +174,10 @@ if __name__ == "__main__":
 
     N = config.N
     s_in, s_out = forward_sim.simulate()
-    R, *_ = reflection_matrix.generate_R(s_in, s_out)
+    R, *_, R_k2 = reflection_matrix.generate_R(s_in, s_out)
     R_k = reflection_matrix.RM_fft(R)
     final_image, ab_in, ab_out = class_algorithm(
-        R_k, N, max_iteration_number=20, max_PI_num=10
+        R_k, N, max_iteration_number=20, max_PI_num=6
     )
 
     import matplotlib.pyplot as plt
@@ -181,7 +192,7 @@ if __name__ == "__main__":
     plt.imshow(-np.angle(ab_out), cmap="twilight", vmin=-np.pi, vmax=np.pi)
     plt.title("Output aberration (estimated θ_out)")
     plt.subplot(2, 3, 4)
-    plt.imshow(obj.obj)
+    plt.imshow(np.abs(obj.obj))
     plt.title("Ground-truth object")
     plt.subplot(2, 3, 5)
     plt.imshow(
