@@ -31,8 +31,9 @@ class Signal:
             self.r = fft.ifft2(data)
 
 
-def simulate() -> tuple[Signal, Signal]:
-    global input_abberations, output_abberations
+def simulate(c_in=c_in, c_out=c_out) -> tuple[Signal, Signal]:
+    input_abberations = generate_abberations(c_in)
+    output_abberations = generate_abberations(c_out)
 
     N = config.N
 
