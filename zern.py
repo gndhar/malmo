@@ -2,6 +2,7 @@ from zernike import RZern
 import numpy as np
 from config import config
 
+N = config.N
 x = y = np.linspace(-2.0, 2.0, 2 * config.N)
 xv, yv = np.meshgrid(x, y)
 
@@ -10,6 +11,14 @@ cart.make_cart_grid(xv, yv)
 
 
 def generate_abberations(coeffs: list[float]) -> np.ndarray:
+    global cart, xv, yv, x, y
+    if N != config.N:
+        x = y = np.linspace(-2.0, 2.0, 2 * config.N)
+        xv, yv = np.meshgrid(x, y)
+
+        cart = RZern(config.zern_n)
+        cart.make_cart_grid(xv, yv)
+
     c = np.zeros(cart.nk)
 
     coeff_count: int = min(len(coeffs), cart.nk)
