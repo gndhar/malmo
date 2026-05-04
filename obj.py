@@ -14,4 +14,4 @@ coins = base_img[:min_dim, :min_dim]
 obj = transform.resize(coins, (2 * config.N, 2 * config.N), anti_aliasing=True).astype(
     complex
 )
-obj *= np.exp(1j * np.random.uniform(0, 2 * np.pi, (2 * N, 2 * N)))
+# obj *= np.exp(1j * np.random.uniform(0, 2 * np.pi, (2 * N, 2 * N)))
