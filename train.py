@@ -16,7 +16,7 @@ ratio = 0.5
 coeff_count = int(zern.cart.nk * ratio)
 batch_size = 16
 learning_rate = 1e-3
-epochs = 1
+epochs = 100
 
 # Since we don't have a static dataset length anymore, we define steps per epoch
 samples_per_epoch = 1024

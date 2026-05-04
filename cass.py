@@ -6,7 +6,7 @@ import reflection_matrix
 
 
 def cass():
-    s_in, s_out = forward_sim.simulate()
+    s_in, s_out = forward_sim.simulate_batched(c_in=[])
     N = config.N
 
     R, *_ = reflection_matrix.generate_R(s_in, s_out)
@@ -38,5 +38,5 @@ if __name__ == "__main__":
     plt.subplot(1, 2, 1)
     plt.imshow(np.abs(cass_r))
     plt.subplot(1, 2, 2)
-    plt.imshow(obj.obj)
+    plt.imshow(np.abs(obj.obj))
     plt.show()
