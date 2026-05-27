@@ -31,6 +31,33 @@ class Signal:
             self.r = fft.ifft2(data)
 
 
+def simulate() -> tuple[Signal, Signal]:
+    global input_abberations, output_abberations
+
+    N = config.N
+
+    k_outs = np.zeros((N, N, N, N), dtype=complex)
+    k_ins = np.zeros((N, N, N, N), dtype=complex)
+
+    for x in range(N):
+        for y in range(N):
+            k_in_padded = np.zeros((N * 2, N * 2))
+            k_in_padded[N // 2 + x, N // 2 + y] = 1.0
+
+            # store inputs
+            k_ins[x, y] = k_in_padded[N // 2 : N // 2 + N, N // 2 : N // 2 + N]
+
+            s_in = Signal(k_in_padded, Space.K)
+            s_inc = Signal(s_in.k * input_abberations, Space.K)
+            s_ref = Signal(s_inc.r * obj, Space.R)
+            s_out = Signal(s_ref.k * output_abberations, Space.K)
+
+            # store outputs
+            k_outs[x, y] = s_out.k[N // 2 : N // 2 + N, N // 2 : N // 2 + N]
+
+    return Signal(k_ins, Space.K), Signal(k_outs, Space.K)
+
+
 def simulate_optimized(c_in=c_in, c_out=c_out) -> tuple[Signal, Signal]:
     N = config.N
 

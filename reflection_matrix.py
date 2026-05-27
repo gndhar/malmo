@@ -77,19 +77,3 @@ def generate_R(s_in: Signal, s_out: Signal):
 
     return R, A, B, R_k
 
-
-import torch
-
-
-def generate_R_k_pt(k_ins: torch.Tensor, k_outs: torch.Tensor):
-    N = config.N
-
-    # 1. Reshape creates zero-copy memory views on the GPU
-    # Shape becomes (N^2, N^2)
-    V_A = k_ins.reshape(N * N, N * N)
-    V_B = k_outs.reshape(N * N, N * N)
-
-    # 2. Hardware-accelerated complex matrix multiplication
-    R_k = V_B.T @ V_A.conj()
-
-    return R_k
