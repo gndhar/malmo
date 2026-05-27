@@ -263,7 +263,7 @@ if __name__ == "__main__":
     R_k = reflection_matrix.generate_R_k(s_in, s_out)
     # R_k = reflection_matrix.RM_fft(R)
     final_image, ab_in, ab_out = class_algorithm(
-        R_k, N, max_iteration_number=10, max_PI_num=6, kfilter=6
+        R_k, N, max_iteration_number=20, max_PI_num=10, kfilter=6
     )
 
     print(final_image)
@@ -290,9 +290,6 @@ if __name__ == "__main__":
     fig1.savefig(os.path.join("class_imgs", "image_comparison.png"), dpi=150)
     plt.show()
 
-    N2 = N // 2
-    N2N = N2 + N
-
     # ==========================================
     # Figure 2: Phase Aberration Comparison
     # ==========================================
@@ -307,7 +304,7 @@ if __name__ == "__main__":
 
     # Bottom Row: Ground Truth
     axs2[1, 0].imshow(
-        np.angle(forward_sim.input_abberations[N2:N2N, N2:N2N]),
+        np.angle(forward_sim.input_abberations),
         cmap="twilight",
         vmin=-np.pi,
         vmax=np.pi,
@@ -315,7 +312,7 @@ if __name__ == "__main__":
     axs2[1, 0].set_title("True input aberration")
 
     axs2[1, 1].imshow(
-        np.angle(forward_sim.output_abberations[N2:N2N, N2:N2N]),
+        np.angle(forward_sim.output_abberations),
         cmap="twilight",
         vmin=-np.pi,
         vmax=np.pi,

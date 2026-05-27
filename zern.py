@@ -11,8 +11,9 @@ cart.make_cart_grid(xv, yv)
 
 
 def generate_abberations(coeffs: list[float]) -> np.ndarray:
-    global cart, xv, yv, x, y
+    global cart, xv, yv, x, y, N
     if N != config.N:
+        N = config.N
         x = y = np.linspace(-2.0, 2.0, 2 * config.N)
         xv, yv = np.meshgrid(x, y)
 
