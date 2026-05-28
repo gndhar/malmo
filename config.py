@@ -23,3 +23,6 @@ class Config:
 
 
 config = Config()
+
+if __name__ == "__main__":
+    print(config)
