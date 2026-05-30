@@ -1,7 +1,7 @@
 """
 generate_scenes.py
 ------------------
-Generates 5000 diverse 2D object images for training the aberration-correction network.
+Generates NUM_SCENES diverse 2D object images for training the aberration-correction network.
 
 Each image is 2N×2N (matching forward_pt.py's padded simulation grid) containing
 a random mix of shapes (Gaussian blobs, discs, rectangles, rings, point clouds)
@@ -18,15 +18,14 @@ import numpy as np
 from PIL import Image
 from tqdm import tqdm
 
-# Allow running from malmo_dataset/ directly
 sys.path.insert(0, os.path.dirname(__file__))
 from config import config
 
-# ── Parameters ────────────────────────────────────────────────────────────────
+#Parameters
 N = config.N
 IMG_SIZE = 2 * N          # 128×128 padded grid — must match forward_pt.py
 NUM_SCENES = 500
-DEPTH_RANGE = 8.0         # ±8 µm, same as figure in the paper
+DEPTH_RANGE = 8.0         # ±8 µm
 SEED = 42
 
 OUT_DIR = os.path.join(os.path.dirname(__file__), "data", "scenes")
@@ -35,7 +34,7 @@ os.makedirs(OUT_DIR, exist_ok=True)
 rng = np.random.default_rng(SEED)
 
 
-# ── Helpers ────────────────────────────────────────────────────────────────────
+#Helpers
 
 def sigma_from_depth(z: float, sigma_min: float = 0.5, depth_scale: float = 0.3) -> float:
     """Gaussian PSF width as a function of depth (defocus model)."""
@@ -198,7 +197,7 @@ def save_scene(img: np.ndarray, path: str) -> None:
     pil_img.save(path)
 
 
-# ── Main ───────────────────────────────────────────────────────────────────────
+#Main 
 
 def main():
     print(f"Generating {NUM_SCENES} scenes of size {IMG_SIZE}×{IMG_SIZE} "
