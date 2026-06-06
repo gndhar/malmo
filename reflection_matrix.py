@@ -76,4 +76,3 @@ def generate_R(s_in: Signal, s_out: Signal):
     B = V_B_r.T
 
     return R, A, B, R_k
-
