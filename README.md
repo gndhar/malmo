@@ -12,6 +12,7 @@ Object is a very small subset
 ## General
 
 Combining plotting
+CLASS does not use memory based logical idx computation
 
 ## 8 June
 
