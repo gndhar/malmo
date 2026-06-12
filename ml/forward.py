@@ -1,10 +1,10 @@
 import torch
 import torch.nn as nn
-import torch.fft as fft
+import ml.fft as fft
 
 
 class Simulation(nn.Module):
-    def __init__(self, N, dtype=torch.complex64):
+    def __init__(self, N: int, dtype=torch.complex64):
         super().__init__()
         self.N = N
 
@@ -24,13 +24,13 @@ class Simulation(nn.Module):
         k_inc = self.k_in * ab_in
 
         # Transform to Real Space
-        r_inc = fft.ifft2(k_inc, dim=(-2, -1))
+        r_inc = fft.ifft2(k_inc)
 
         # Interact with Object
         r_ref = r_inc * obj
 
         # Transform back to K-space
-        k_ref = fft.fft2(r_ref, dim=(-2, -1))
+        k_ref = fft.fft2(r_ref)
 
         # Apply output aberrations
         k_out = k_ref * ab_out
