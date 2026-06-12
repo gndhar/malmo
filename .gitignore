@@ -1,5 +1,59 @@
-.venv
-.venvpypy
-__pycache__
+# =========================
+# User-Specific / Data Files
+# =========================
+# Ignore specific data folders and zip archives
 26096095/
-26096095.zip
+*.zip
+
+# =========================
+# Virtual Environments
+# =========================
+# Ignore all variations of python virtual environments
+.venv/
+.venvpypy/
+venv/
+env/
+
+# =========================
+# Python Caches & Build Files
+# =========================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Distribution / packaging
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# =========================
+# Testing & Coverage
+# =========================
+.pytest_cache/
+htmlcov/
+.tox/
+.coverage
+.coverage.*
+nosetests.xml
+coverage.xml
+
+# =========================
+# Environment Variables
+# =========================
+.env
+.env.local
+
+# =========================
+# OS & IDE Files (Optional but recommended)
+# =========================
+.DS_Store
+.vscode/
+.idea/
+*.swp
