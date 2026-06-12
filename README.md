@@ -12,3 +12,14 @@ Object is a very small subset
 ## General
 
 Combining plotting
+
+## 8 June
+
+- [] Self Contained PPT
+- [] Compare with their UNet paper
+- [] Read the two papers
+
+
+- [] Fine tune model (check with noise)
+- [] Coeffs from UNet paper
+- [] Higher coefficients in general

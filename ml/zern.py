@@ -24,28 +24,43 @@ class ZernikeAberration(nn.Module):
             c[i] = 1.0
             basis_list.append(cart.eval_grid(c, matrix=True))
 
-        basis_tensor = torch.tensor(np.array(basis_list), dtype=torch.float32)
-        # basis_tensor = torch.nan_to_num(basis_tensor, nan=0.0) <-
+        raw_basis = np.array(basis_list)
 
-        # Lightning looks for this. It handles all .to(device) calls automatically.
+        # 1. Create a binary mask where the Zernike polynomials are valid (Not NaN)
+        # Since all basis functions share the same support, we can just check the first one.
+        pupil_mask_np = (~np.isnan(raw_basis[0])).astype(np.float32)
+        pupil_mask_tensor = torch.tensor(pupil_mask_np, dtype=torch.float32)
+
+        # 2. Clean the basis tensor safely by replacing NaNs with 0.0
+        basis_tensor = torch.tensor(raw_basis, dtype=torch.float32)
+        basis_tensor = torch.nan_to_num(basis_tensor, nan=0.0)
+
+        # Lightning handles all .to(device) calls automatically for these buffers
         self.register_buffer("zernike_basis", basis_tensor)
+        self.register_buffer("pupil_mask", pupil_mask_tensor)
 
     @property
     def num_coefficients(self) -> int:
         return self.zernike_basis.shape[0]
 
     def forward(self, coeffs: torch.Tensor) -> torch.Tensor:
-        nk = self.num_coefficients
-
-        # Slicing is inherently device-agnostic
-        if coeffs.shape[-1] > nk:
-            coeffs = coeffs[..., :nk]
-        # Using .new_zeros() guarantees the padding matches the device/dtype of coeffs
-        elif coeffs.shape[-1] < nk:
-            missing_count = nk - coeffs.shape[-1]
-            padding_shape = list(coeffs.shape[:-1]) + [missing_count]
-            padding = coeffs.new_zeros(padding_shape)
-            coeffs = torch.cat([coeffs, padding], dim=-1)
-
+        # nk = self.num_coefficients
+        #
+        # # Slicing is inherently device-agnostic
+        # if coeffs.shape[-1] > nk:
+        #     coeffs = coeffs[..., :nk]
+        # # Using .new_zeros() guarantees the padding matches the device/dtype of coeffs
+        # elif coeffs.shape[-1] < nk:
+        #     missing_count = nk - coeffs.shape[-1]
+        #     padding_shape = list(coeffs.shape[:-1]) + [missing_count]
+        #     padding = coeffs.new_zeros(padding_shape)
+        #     coeffs = torch.cat([coeffs, padding], dim=-1)
+        #
+        # Compute phase (clean 0.0 values outside the pupil)
         phi = torch.einsum("...k,khw->...hw", coeffs, self.zernike_basis)
-        return torch.nan_to_num(torch.exp(1j * phi), nan=0.0)  # <-
+
+        # Compute complex wavefront. Outside the pupil, phi=0 -> exp(1j*0) = 1.0
+        wavefront = torch.exp(1j * phi)
+
+        # 3. Multiply by the binary mask to force the outside magnitude back to 0.0
+        return wavefront * self.pupil_mask
