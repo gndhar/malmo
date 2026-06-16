@@ -16,11 +16,18 @@ CLASS does not use memory based logical idx computation
 
 ## 8 June
 
-- [] Self Contained PPT
-- [] Compare with their UNet paper
-- [] Read the two papers
+-[x] Self Contained PPT
+-[ ] Compare with their UNet paper
+-[ ] Read the two papers
 
 
-- [] Fine tune model (check with noise)
-- [] Coeffs from UNet paper
-- [] Higher coefficients in general
+-[x] Fine tune model (check with noise)
+-[ ] Coeffs from UNet paper
+-[ ] Higher coefficients in general
+
+## 16 June
+
+-[ ] Noise study
+-[ ] Higher number of zernike modes
+-[ ] Direct pixel prediction
+-[x] PPT for new people
