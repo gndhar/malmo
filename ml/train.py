@@ -15,10 +15,10 @@ zern_n = 5
 epochs = 50
 
 
-train_dataset = RMDataset(N=2 * N, size=64, seed=42)
+train_dataset = RMDataset(N=2 * N, size=64, zern_n=zern_n, seed=42)
 train_dataloader = DataLoader(train_dataset, batch_size=4, shuffle=True)
 
-val_dataset = RMDataset(N=2 * N, size=4, seed=420)
+val_dataset = RMDataset(N=2 * N, size=4, zern_n=zern_n, seed=420)
 val_dataloader = DataLoader(val_dataset, batch_size=4, shuffle=False)
 
 

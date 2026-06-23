@@ -45,14 +45,14 @@ class ObjDataset(Dataset):
 
 
 class RMDataset(Dataset):
-    def __init__(self, N: int, size: int, seed: int = 42):
+    def __init__(self, N: int, size: int, zern_n: int, seed: int = 42):
         self.N = N
         self.size = size
         self.seed = seed
         self.obj_dataset = ObjDataset(N, size, seed)
 
         self.simulation = Simulation(N)
-        self.ab_gen = ZernikeAberration(N, zern_n=6)
+        self.ab_gen = ZernikeAberration(N, zern_n=zern_n)
         self.coeff_count = self.ab_gen.num_coefficients
 
     def __len__(self):
