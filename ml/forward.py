@@ -27,7 +27,9 @@ class Simulation(nn.Module):
         self.register_buffer("k_in_cropped", k_in_cropped)
 
     def forward(self, ab_in, ab_out, obj):
-        k_inc = self.k_in * ab_in
+        # print("k_in.shape", self.k_in.shape)
+        # print("ab_in.shape", ab_in.shape)
+        k_inc = self.k_in * ab_in.unsqueeze(1).unsqueeze(1)
 
         # Transform to Real Space
         r_inc = torch.fft.fftshift(
@@ -38,7 +40,9 @@ class Simulation(nn.Module):
         )
 
         # Interact with Object
-        r_ref = r_inc * obj
+        # print("r_inc.shape", r_inc.shape)
+        # print("obj.shape", obj.shape)
+        r_ref = r_inc * obj.unsqueeze(1).unsqueeze(1)
 
         # Transform back to K-space
         k_ref = torch.fft.fftshift(
@@ -49,11 +53,13 @@ class Simulation(nn.Module):
         )
 
         # Apply output aberrations
-        k_out = k_ref * ab_out
+        # print("k_ref.shape", k_ref.shape)
+        # print("ab_out.shape", ab_out.shape)
+        k_out = k_ref * ab_out.unsqueeze(1).unsqueeze(1)
 
         # Crop and return ONLY the output
         start = self.N // 2
         end = start + self.N
-        k_outs = k_out[:, :, start:end, start:end]
+        k_outs = k_out[..., start:end, start:end]
 
         return k_outs

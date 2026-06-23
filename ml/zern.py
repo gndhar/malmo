@@ -2,11 +2,10 @@ import torch
 import torch.nn as nn
 import numpy as np
 from zernike import RZern
-from config import config
 
 
 class ZernikeAberration(nn.Module):
-    def __init__(self, N: int = config.N, zern_n: int = config.zern_n):
+    def __init__(self, N: int, zern_n: int):
         super().__init__()
         self.N = N
         self.zern_n = zern_n
@@ -44,19 +43,6 @@ class ZernikeAberration(nn.Module):
         return self.zernike_basis.shape[0]
 
     def forward(self, coeffs: torch.Tensor) -> torch.Tensor:
-        # nk = self.num_coefficients
-        #
-        # # Slicing is inherently device-agnostic
-        # if coeffs.shape[-1] > nk:
-        #     coeffs = coeffs[..., :nk]
-        # # Using .new_zeros() guarantees the padding matches the device/dtype of coeffs
-        # elif coeffs.shape[-1] < nk:
-        #     missing_count = nk - coeffs.shape[-1]
-        #     padding_shape = list(coeffs.shape[:-1]) + [missing_count]
-        #     padding = coeffs.new_zeros(padding_shape)
-        #     coeffs = torch.cat([coeffs, padding], dim=-1)
-        #
-        # Compute phase (clean 0.0 values outside the pupil)
         phi = torch.einsum("...k,khw->...hw", coeffs, self.zernike_basis)
 
         # Compute complex wavefront. Outside the pupil, phi=0 -> exp(1j*0) = 1.0
