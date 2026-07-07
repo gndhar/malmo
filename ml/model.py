@@ -1,4 +1,3 @@
-# resnet.py
 import torch
 from torch import nn
 
@@ -21,8 +20,9 @@ class ResBlock(nn.Module):
 
 
 class Model(nn.Module):
-    def __init__(self, n_input, coeff_count):
+    def __init__(self, N, coeff_count):
         super().__init__()
+        self.N = N
         # We treat Real and Imag as 2 input channels
         # Reshape (N, N, N, N) -> (N^2, N^2)
         self.initial_conv = nn.Conv2d(2, 32, kernel_size=7, stride=2, padding=3)
@@ -49,9 +49,8 @@ class Model(nn.Module):
         return nn.Sequential(*layers)
 
     def forward(self, Rk: torch.Tensor):
-        # x shape: (batch, N, N, N, N) complex
         batch_size = Rk.shape[0]
-        N2 = Rk.shape[-1]
+        N2 = self.N**2
 
         # Reshape to (Batch, Channels, N*N, N*N)
         # We split complex into 2 channels

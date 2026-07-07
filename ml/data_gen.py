@@ -22,7 +22,7 @@ class ObjDataset(Dataset):
 
         image = random_shapes(
             image_shape=(self.N, self.N),
-            max_shapes=10,
+            max_shapes=20,
             min_shapes=5,
             shape=None,
             min_size=0,
