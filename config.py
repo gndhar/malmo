@@ -2,11 +2,11 @@ import numpy as np
 
 
 class Config:
-    N: int = 64
+    N: int = 32
     wavelength: float = 1.0
     na: float = 1.0
 
-    zern_n: int = 6
+    zern_n: int = 5
 
     def __init__(self) -> None:
         self.dr = self.wavelength / 2 / self.na

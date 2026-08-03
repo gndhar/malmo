@@ -5,10 +5,12 @@ from zernike import RZern
 
 
 class ZernikeAberration(nn.Module):
-    def __init__(self, N: int, zern_n: int):
+    def __init__(self, N: int, zern_n: int, dtype=torch.float32, npdtype=np.float32):
         super().__init__()
         self.N = N
         self.zern_n = zern_n
+        self.dtype = dtype
+        self.npdtype = npdtype
 
         # NumPy setup (runs once on CPU during initialization)
         x = y = np.linspace(-2.0, 2.0, 2 * self.N)
@@ -27,11 +29,11 @@ class ZernikeAberration(nn.Module):
 
         # 1. Create a binary mask where the Zernike polynomials are valid (Not NaN)
         # Since all basis functions share the same support, we can just check the first one.
-        pupil_mask_np = (~np.isnan(raw_basis[0])).astype(np.float32)
-        pupil_mask_tensor = torch.tensor(pupil_mask_np, dtype=torch.float32)
+        pupil_mask_np = (~np.isnan(raw_basis[0])).astype(self.npdtype)
+        pupil_mask_tensor = torch.tensor(pupil_mask_np, dtype=self.dtype)
 
         # 2. Clean the basis tensor safely by replacing NaNs with 0.0
-        basis_tensor = torch.tensor(raw_basis, dtype=torch.float32)
+        basis_tensor = torch.tensor(raw_basis, dtype=self.dtype)
         basis_tensor = torch.nan_to_num(basis_tensor, nan=0.0)
 
         # Lightning handles all .to(device) calls automatically for these buffers
