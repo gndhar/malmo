@@ -36,6 +36,7 @@ from multiprocessing import Pool
 
 import torch
 from torch.utils.data import Dataset
+from tqdm.auto import tqdm
 
 from zern import ZernikeAberration
 
@@ -214,12 +215,16 @@ class RMDataset(Dataset):
             args = [(i, N, seed, min_fibers, max_fibers) for i in range(size)]
             objs_by_idx = {}
             with Pool(num_workers_build) as pool:
-                for idx, obj in pool.imap_unordered(_generate_one, args, chunksize=8):
+                for idx, obj in tqdm(
+                    pool.imap_unordered(_generate_one, args, chunksize=8),
+                    total=size,
+                    desc="Caching objects",
+                ):
                     objs_by_idx[idx] = obj
             objs = [objs_by_idx[i] for i in range(size)]
         else:
             objs = []
-            for idx in range(size):
+            for idx in tqdm(range(size), desc="Caching objects"):
                 rng = random.Random(seed + idx)
                 num_fibers = rng.randint(min_fibers, max_fibers)
                 objs.append(create_myelin_target(N, num_fibers, rng))
