@@ -1,0 +1,10 @@
+[tool.basedpyright]
+typeCheckingMode = "standard"
+reportImplicitOverride = "none"
+reportUnannotatedClassAttribute = "none"
+reportAny = "none"
+reportExplicitAny = "none"
+reportMissingTypeArgument = "none"
+reportUnknownMemberType = "none"
+reportUnknownVariableType = "none"
+reportUnknownParameterType = "none"
