@@ -1,5 +1,5 @@
-import torch
 import numpy as np
+import torch
 
 # Import your configurations and modules
 from config import config
@@ -9,6 +9,7 @@ import reflection_matrix as rm_np
 
 # Mock Signal class to replicate forward_sim.Signal behavior for testing
 class MockSignal:
+
     def __init__(self, data: np.ndarray):
         self.k = data
         self.r = np.fft.ifft2(data)  # Just mock the real-space representation if needed
@@ -34,7 +35,8 @@ def test_rm_functions():
 
     # Run both implementations
     M_fft_np = rm_np.RM_fft(M_dummy_np)
-    M_fft_pt = rm_pt.RM_fft(M_dummy_pt, N).numpy()
+    M_fft_pt_tensor = rm_pt.RM_fft(M_dummy_pt, N)
+    M_fft_pt = M_fft_pt_tensor.numpy()
 
     # Compare
     max_err_fft = np.max(np.abs(M_fft_np - M_fft_pt))
@@ -42,6 +44,33 @@ def test_rm_functions():
     np.testing.assert_allclose(M_fft_np, M_fft_pt, atol=1e-11, rtol=1e-11)
     print("✅ RM_fft outputs match perfectly!")
 
+    # ==========================================
+    # 1B. Test RM_ifft Round-trip Inversion (Assuming Even N)
+    # ==========================================
+    print("\n--- Testing RM_ifft Round-trip ---")
+    assert N % 2 == 0, f"N must be even for this test suite, but got N={N}"
+
+    # Direction 1: Real-space -> K-space (RM_fft) -> Real-space (RM_ifft)
+    M_rec_pt = rm_pt.RM_ifft(M_fft_pt_tensor, N)
+    max_err_ifft = torch.max(torch.abs(M_dummy_pt - M_rec_pt)).item()
+    print(f"RM_ifft(RM_fft(M_space)) max absolute error: {max_err_ifft:.2e}")
+    np.testing.assert_allclose(M_dummy_np, M_rec_pt.numpy(), atol=1e-11, rtol=1e-11)
+
+    # Direction 2: K-space -> Real-space (RM_ifft) -> K-space (RM_fft)
+    # Generate random k-space matrix directly
+    M_k_dummy = (
+        np.random.randn(N * N, N * N) + 1j * np.random.randn(N * N, N * N)
+    ).astype(np_dtype)
+    M_k_pt = torch.from_numpy(M_k_dummy).to(pt_dtype)
+
+    M_space_pt = rm_pt.RM_ifft(M_k_pt, N)
+    M_k_rec_pt = rm_pt.RM_fft(M_space_pt, N)
+
+    max_err_k_roundtrip = torch.max(torch.abs(M_k_pt - M_k_rec_pt)).item()
+    print(f"RM_fft(RM_ifft(M_kspace)) max absolute error: {max_err_k_roundtrip:.2e}")
+    np.testing.assert_allclose(M_k_dummy, M_k_rec_pt.numpy(), atol=1e-11, rtol=1e-11)
+
+    print("✅ RM_ifft perfectly inverts RM_fft in both directions!")
     # ==========================================
     # 2. Test get_Rk / generate_R_k (Single Input/Output R_k Generation)
     # ==========================================
@@ -91,7 +120,6 @@ def test_rm_functions():
     Rk_batched_pt = rm_pt.get_Rk_batched(k_in_pt, k_outs_batched_pt, N).numpy()
 
     # 3B. Run Looped NumPy
-    # We must loop through the batch dimension manually to build the truth array
     Rk_batched_np = np.zeros((batch_size, N * N, N * N), dtype=np_dtype)
     for b in range(batch_size):
         sig_out_b = MockSignal(k_outs_batched_np[b])

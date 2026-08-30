@@ -25,6 +25,23 @@ def RM_fft(M_rin_rout: torch.Tensor, N: int) -> torch.Tensor:
     return M_temp.reshape(N * N, -1).T
 
 
+def RM_ifft(M_kin_kout: torch.Tensor, N: int) -> torch.Tensor:
+    # 1. Process Input Coordinates (invert ifft2 using fft2)
+    M_temp = M_kin_kout.T.reshape(N, N, -1)
+    M_temp = torch.fft.fftshift(M_temp, dim=(0, 1))
+    M_temp = torch.fft.fft2(M_temp, dim=(0, 1))
+    M_temp = torch.fft.ifftshift(M_temp, dim=(0, 1))
+    # 2. Transpose to switch focus back to Output Coordinates
+    M_temp = M_temp.reshape(N * N, -1).T
+    # 3. Process Output Coordinates (invert fft2 using ifft2)
+    M_temp = M_temp.reshape(N, N, -1)
+    M_temp = torch.fft.fftshift(M_temp, dim=(0, 1))
+    M_temp = torch.fft.ifft2(M_temp, dim=(0, 1))
+    M_temp = torch.fft.ifftshift(M_temp, dim=(0, 1))
+    # 4. Final flatten — no transpose here, it's already undone above
+    return M_temp.reshape(N * N, -1)
+
+
 def get_Rk(k_in: torch.Tensor, k_out: torch.Tensor, N: int) -> torch.Tensor:
     A = k_in.reshape(N * N, N * N)
     B = k_out.reshape(N * N, N * N)
