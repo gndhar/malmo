@@ -4,11 +4,25 @@ import torch.nn.functional as F
 
 
 class TensorFolder(nn.Module):
-    def __init__(self, N: int):
+
+    def __init__(self, N: int, eps: float = 1e-8):
         super().__init__()
         self.N: int = N
+        self.eps: float = eps
 
     def forward(self, Rk: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        # Phase Anchoring
+        spatial_dims = tuple(range(1, Rk.ndim))
+        weighted_sum = torch.sum(Rk * torch.abs(Rk), dim=spatial_dims, keepdim=True)
+        ref_phase = torch.angle(weighted_sum)
+        Rk = Rk * torch.exp(-1j * ref_phase)
+
+        # RMS normalization: Rk / sqrt(mean(|Rk|^2))
+        rms = torch.sqrt(
+            torch.mean(torch.abs(Rk) ** 2, dim=spatial_dims, keepdim=True) + self.eps
+        )
+        Rk = Rk / rms
+
         batch_size = Rk.shape[0]
         if torch.is_complex(Rk):
             Rk = torch.stack([Rk.real, Rk.imag], dim=1)
