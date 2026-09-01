@@ -2,13 +2,10 @@
 aberration maps.
 
 Key Features & Updates:
-- `RMDataset.__getitem__` directly yields `(ab_in, ab_out, obj)` complex phase fields
-  instead of raw Zernike coefficients, shifting physics computation out of the training loop.
-- Abstracted `aberration_generator` interface allowing seamless swapping between
-  standard Zernike aberrations and custom phase distortion models.
-- Python stdlib `random` module for scalar RNG draws during object generation.
-- Dynamic chunking during target compositing to bound transient memory.
-- Multi-process dataset object caching with "spawn" start-method safety.
+- `generate_high_depth_grf`: Generates continuous smooth GRF phase fields.
+- `HighDepthGRFGenerator`: Produces zero-mean GRF complex phase maps masked inside the active pupil.
+- `RMDataset.__getitem__`: Directly yields (ab_in, ab_out, obj) complex phase fields of shape (N, N).
+- Monitoring shape print statement in `RMDataset.__getitem__`.
 """
 
 import math
@@ -18,10 +15,108 @@ import random
 from typing import Callable, Optional, Tuple
 
 import torch
+import torch.nn.functional as F
 from torch.utils.data import Dataset
 from tqdm.auto import tqdm
 
 from zern import ZernikeAberration
+
+
+def generate_high_depth_grf(
+    batch_size: int,
+    N: int = 64,
+    kernel_size: int = 17,
+    sigma_spatial: float = 2.0,
+    min_wraps: float = 2.0,
+    max_wraps: float = 4.0,
+    device: torch.device = torch.device("cpu"),
+) -> torch.Tensor:
+    """Generates continuous smooth phase fields on an N x N grid with 2pi wrap controls."""
+    coords = (
+        torch.arange(kernel_size, dtype=torch.float32, device=device)
+        - (kernel_size - 1) / 2
+    )
+    grid_y, grid_x = torch.meshgrid(coords, coords, indexing="ij")
+    gaussian_kernel = torch.exp(-(grid_x**2 + grid_y**2) / (2 * sigma_spatial**2))
+    gaussian_kernel = gaussian_kernel / gaussian_kernel.sum()
+    gaussian_kernel = gaussian_kernel.view(1, 1, kernel_size, kernel_size)
+
+    noise = torch.randn(batch_size, 1, N, N, device=device)
+    smoothed = F.conv2d(noise, gaussian_kernel, padding=kernel_size // 2)
+
+    smoothed_std = smoothed.std(dim=(-2, -1), keepdim=True) + 1e-8
+    smooth_normalized = smoothed / smoothed_std
+
+    target_wraps = (
+        torch.empty(batch_size, 1, 1, 1, device=device).uniform_(min_wraps, max_wraps)
+        * 2
+        * torch.pi
+    )
+    ptv_current = smooth_normalized.amax(
+        dim=(-2, -1), keepdim=True
+    ) - smooth_normalized.amin(dim=(-2, -1), keepdim=True)
+
+    continuous_phase = (smooth_normalized / ptv_current) * target_wraps
+    return continuous_phase.squeeze(1)
+
+
+class HighDepthGRFGenerator:
+    """Generator for creating GRF complex phase maps with zero mean phase inside the pupil mask."""
+
+    def __init__(
+        self,
+        N: int = 64,
+        kernel_size: int = 17,
+        sigma_spatial: float = 2.0,
+        min_wraps: float = 2.0,
+        max_wraps: float = 4.0,
+        device: torch.device = torch.device("cpu"),
+    ):
+        self.N = N
+        self.kernel_size = kernel_size
+        self.sigma_spatial = sigma_spatial
+        self.min_wraps = min_wraps
+        self.max_wraps = max_wraps
+        self.device = device
+
+        # Pupil mask from ZernikeAberration (N // 2 creates an N x N grid mask)
+        self.zern_gen = ZernikeAberration(N=N // 2, zern_n=0)
+        self.pupil_mask = self.zern_gen.pupil_mask.to(device)
+        self.active_mask = self.pupil_mask > 0
+
+    def __call__(self) -> torch.Tensor:
+        phase = generate_high_depth_grf(
+            batch_size=1,
+            N=self.N,
+            kernel_size=self.kernel_size,
+            sigma_spatial=self.sigma_spatial,
+            min_wraps=self.min_wraps,
+            max_wraps=self.max_wraps,
+            device=self.device,
+        )[0]
+
+        pupil_mean = phase[self.active_mask].mean()
+        zero_mean_phase = phase - pupil_mean
+
+        complex_phase = torch.polar(torch.ones_like(zero_mean_phase), zero_mean_phase)
+        return torch.where(
+            self.active_mask,
+            complex_phase,
+            torch.tensor(0.0 + 0.0j, device=self.device),
+        )
+
+
+class StandardZernikeGenerator:
+    """Default generator for creating Zernike complex phase maps."""
+
+    def __init__(self, N: int, zern_n: int):
+        self.ab_gen = ZernikeAberration(N // 2, zern_n=zern_n)
+        self.coeff_count = self.ab_gen.num_coefficients
+
+    def __call__(self) -> torch.Tensor:
+        coeffs = torch.rand(self.coeff_count) * 2 - 1
+        coeffs[0] = 0.0  # Zero out piston term
+        return self.ab_gen(coeffs)
 
 
 def _rescale(x: torch.Tensor, lo: float, hi: float) -> torch.Tensor:
@@ -112,19 +207,6 @@ def create_myelin_target(
     return torch.polar(amp_map, phase_map)
 
 
-class StandardZernikeGenerator:
-    """Default generator for creating Zernike complex phase maps."""
-
-    def __init__(self, N: int, zern_n: int):
-        self.ab_gen = ZernikeAberration(N, zern_n=zern_n)
-        self.coeff_count = self.ab_gen.num_coefficients
-
-    def __call__(self) -> torch.Tensor:
-        coeffs = torch.rand(self.coeff_count) * 2 - 1
-        coeffs[0] = 0.0  # Zero out piston term
-        return self.ab_gen(coeffs)
-
-
 class ObjDataset(Dataset):
     """On-the-fly (uncached) object generation."""
 
@@ -172,6 +254,7 @@ class RMDataset(Dataset):
         N: int,
         size: int,
         zern_n: int = 5,
+        aberration_type: str = "grf",
         seed: int = 42,
         min_fibers: int = 5,
         max_fibers: int = 20,
@@ -179,6 +262,10 @@ class RMDataset(Dataset):
         cache_path: Optional[str] = None,
         num_workers_build: int = 1,
         aberration_generator: Optional[Callable[[], torch.Tensor]] = None,
+        grf_kernel_size: int = 17,
+        grf_sigma_spatial: float = 2.0,
+        grf_min_wraps: float = 2.0,
+        grf_max_wraps: float = 4.0,
     ):
         self.N = N
         self.size = size
@@ -188,7 +275,13 @@ class RMDataset(Dataset):
         # Setup Object Source
         if cache_objects:
             self._cached_objs = self._build_or_load_cache(
-                N, size, seed, min_fibers, max_fibers, cache_path, num_workers_build
+                N,
+                size,
+                seed,
+                min_fibers,
+                max_fibers,
+                cache_path,
+                num_workers_build,
             )
         else:
             self.obj_dataset = ObjDataset(N, size, seed, min_fibers, max_fibers)
@@ -196,8 +289,18 @@ class RMDataset(Dataset):
         # Setup Aberration Generator Strategy
         if aberration_generator is not None:
             self.aberration_generator = aberration_generator
+        elif aberration_type == "grf":
+            self.aberration_generator = HighDepthGRFGenerator(
+                N=N,
+                kernel_size=grf_kernel_size,
+                sigma_spatial=grf_sigma_spatial,
+                min_wraps=grf_min_wraps,
+                max_wraps=grf_max_wraps,
+            )
+        elif aberration_type == "zernike":
+            self.aberration_generator = StandardZernikeGenerator(N=N, zern_n=zern_n)
         else:
-            self.aberration_generator = StandardZernikeGenerator(N // 2, zern_n=zern_n)
+            raise ValueError(f"Unknown aberration_type: {aberration_type!r}")
 
     @staticmethod
     def _build_or_load_cache(
@@ -247,7 +350,6 @@ class RMDataset(Dataset):
     def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         obj = self._cached_objs[idx] if self.cache_objects else self.obj_dataset[idx]
 
-        # Generate complex phase maps directly
         ab_in = self.aberration_generator()
         ab_out = self.aberration_generator()
 
