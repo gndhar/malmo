@@ -116,7 +116,6 @@ class StandardZernikeGenerator:
     """Default generator for creating Zernike complex phase maps."""
 
     def __init__(self, N: int, zern_n: int):
-        print("zernike N", N)
         self.ab_gen = ZernikeAberration(N, zern_n=zern_n)
         self.coeff_count = self.ab_gen.num_coefficients
 
@@ -251,7 +250,5 @@ class RMDataset(Dataset):
         # Generate complex phase maps directly
         ab_in = self.aberration_generator()
         ab_out = self.aberration_generator()
-
-        print(ab_in.shape, ab_out.shape, obj.shape)
 
         return ab_in, ab_out, obj

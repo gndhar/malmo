@@ -59,19 +59,19 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--checkpoint_dir",
         type=str,
-        default="~/malmo/ml/checkpoint",
+        default="checkpoint",
         help="Base directory for writing subfolder-isolated checkpoints and plots.",
     )
     p.add_argument(
         "--cache_dir",
         type=str,
-        default="~/malmo/ml/cache",
+        default="cache",
         help="Directory to cache dataset .pt files.",
     )
     p.add_argument(
         "--log_dir",
         type=str,
-        default="~/malmo/ml/runs",
+        default="runs",
         help="Base directory for TensorBoard logs.",
     )
     p.add_argument(
