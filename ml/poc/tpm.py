@@ -80,8 +80,8 @@ def generate_composite_sample(
 
     pupil_N = theta_zern.shape[-1]
 
-    alpha = float(torch.empty(1).uniform_(1.5, 3.0))
-    rms = float(torch.empty(1).uniform_(4.0, 12.0))
+    alpha = float(torch.empty(1).uniform_(2.5, 5.0))
+    rms = float(torch.empty(1).uniform_(3.0, 6.0))
     theta_grf = generate_grf_phase_torch(N, pupil_N=pupil_N, alpha=alpha, rms_rad=rms)
 
     # Blend continuous phase fields

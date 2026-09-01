@@ -1,48 +1,21 @@
-"""Data generation for MALMO: myelin-fiber synthetic objects + reflection-matrix
-Zernike coefficient pairs.
+"""Data generation for MALMO: synthetic myelin-fiber objects + complex phase
+aberration maps.
 
-Changes vs. the original:
-- Scalar RNG draws (endpoint sampling, angle jitter, per-step amplitude,
-  phase choice) go through Python's `random` module instead of one-element
-  torch.Generator ops -- much cheaper per call, still seeded per-idx so
-  results stay reproducible.
-- The blob-compositing step is chunked over points, with the chunk size
-  auto-scaled down as N grows so transient memory (~chunk_size * N^2 * a few
-  buffers) stays bounded. You don't need to hand-tune this as N changes.
-- RMDataset gained:
-    * cache_objects (default True): generate every object once in __init__
-      instead of every __getitem__/epoch. Object generation is a pure
-      function of `seed + idx`, so regenerating it repeatedly is wasted
-      work. Only disable this if size * N * N * 8 bytes stops comfortably
-      fitting in RAM (tens of thousands of samples at large N).
-    * cache_path (default None): if given, the built cache is saved there
-      with torch.save, and loaded from there instead of regenerated if the
-      file already exists. Matters once generation is no longer near-instant
-      (e.g. N=128 object grids) and you're running on a session that resets
-      between runs (Colab) -- point this at a mounted Google Drive path to
-      avoid repaying the build cost every session.
-    * num_workers_build (default 1): if >1, builds the cache in parallel
-      via a multiprocessing Pool. Only helps when generation itself is slow
-      enough to be worth the process-pool overhead (large N); Colab typically
-      only gives you 2 vCPUs so don't expect more than ~2x from this.
-      Uses the "spawn" start method rather than the platform default
-      ("fork" on Linux) deliberately: any torch op run in the main process
-      (e.g. the `torch.stack` below, or -- in a notebook -- ipykernel's own
-      background threads) can leave live background threads holding
-      internal locks. `fork()` only duplicates the calling thread, so a
-      forked worker can inherit one of those locks already held and
-      permanently stuck, deadlocking the first torch op it tries to run.
-      "spawn" starts each worker as a fresh interpreter instead, which
-      sidesteps this entirely at the cost of slightly slower worker
-      startup (negligible here).
-  Coefficients (c_in/c_out) are never cached -- they're intentionally
-  re-sampled every fetch, and that's cheap regardless of N.
+Key Features & Updates:
+- `RMDataset.__getitem__` directly yields `(ab_in, ab_out, obj)` complex phase fields
+  instead of raw Zernike coefficients, shifting physics computation out of the training loop.
+- Abstracted `aberration_generator` interface allowing seamless swapping between
+  standard Zernike aberrations and custom phase distortion models.
+- Python stdlib `random` module for scalar RNG draws during object generation.
+- Dynamic chunking during target compositing to bound transient memory.
+- Multi-process dataset object caching with "spawn" start-method safety.
 """
 
 import math
 import multiprocessing as mp
 import os
 import random
+from typing import Callable, Optional, Tuple
 
 import torch
 from torch.utils.data import Dataset
@@ -62,25 +35,15 @@ def create_myelin_target(
     N: int,
     num_fibers: int,
     rng: random.Random,
-    device="cpu",
+    device: str = "cpu",
     chunk_size: int = 4096,
 ) -> torch.Tensor:
-    """Synthetic myelin-fiber-like complex reflectivity target on an N x N grid.
-
-    `rng` is a plain `random.Random` instance (not a torch.Generator) --
-    scalar draws through Python's stdlib RNG are much cheaper than the
-    equivalent one-element torch tensor ops, and this routine is scalar-heavy
-    by nature (sequential fiber growth).
-    """
+    """Synthetic myelin-fiber-like complex reflectivity target on an N x N grid."""
     thickness = 0.7
     min_len = 0.25 * N
     min_fiber_amp = 0.4
     phase_choices = (-1.0, -0.5, 0.5, 1.0)
 
-    # Auto-cap the chunk size so peak transient memory (dx, dy, blobs, each
-    # chunk_size * N * N floats) stays bounded as N grows -- at N=32 this
-    # leaves the passed-in default untouched, at N=128 it cuts it down
-    # automatically instead of requiring manual retuning.
     chunk_size = min(chunk_size, max(256, int(1.25e7 / (N * N))))
 
     endpoints = []
@@ -99,7 +62,6 @@ def create_myelin_target(
             continue
 
         angle = math.atan2(y_end - y, x_end - x)
-
         angle_deltas = [rng.gauss(0.0, 0.1) for _ in range(fiber_len)]
         fiber_amps = [rng.uniform(min_fiber_amp, 1.0) for _ in range(fiber_len)]
         phase_picks = [rng.choice(phase_choices) for _ in range(fiber_len)]
@@ -120,7 +82,7 @@ def create_myelin_target(
             amps.append(fiber_amps[step] * taper[step])
             phases.append(math.pi * phase_picks[step])
 
-    if not xs:  # degenerate case: no fiber survived even one step
+    if not xs:
         z = torch.zeros(N, N, device=device)
         return torch.polar(z, z)
 
@@ -150,9 +112,22 @@ def create_myelin_target(
     return torch.polar(amp_map, phase_map)
 
 
+class StandardZernikeGenerator:
+    """Default generator for creating Zernike complex phase maps."""
+
+    def __init__(self, N: int, zern_n: int):
+        print("zernike N", N)
+        self.ab_gen = ZernikeAberration(N, zern_n=zern_n)
+        self.coeff_count = self.ab_gen.num_coefficients
+
+    def __call__(self) -> torch.Tensor:
+        coeffs = torch.rand(self.coeff_count) * 2 - 1
+        coeffs[0] = 0.0  # Zero out piston term
+        return self.ab_gen(coeffs)
+
+
 class ObjDataset(Dataset):
-    """On-the-fly (uncached) object generation -- used internally by
-    RMDataset when cache_objects=False, or usable standalone."""
+    """On-the-fly (uncached) object generation."""
 
     def __init__(
         self,
@@ -168,17 +143,17 @@ class ObjDataset(Dataset):
         self.min_fibers = min_fibers
         self.max_fibers = max_fibers
 
-    def __len__(self):
+    def __len__(self) -> int:
         return self.size
 
-    def __getitem__(self, idx):
+    def __getitem__(self, idx: int) -> torch.Tensor:
         rng = random.Random(self.seed + idx)
         num_fibers = rng.randint(self.min_fibers, self.max_fibers)
         return create_myelin_target(self.N, num_fibers, rng)
 
 
 def _generate_one(args):
-    """Module-level (picklable) worker for multiprocessing.Pool cache builds."""
+    """Module-level worker for multiprocessing.Pool object cache builds."""
     idx, N, seed, min_fibers, max_fibers = args
     rng = random.Random(seed + idx)
     num_fibers = rng.randint(min_fibers, max_fibers)
@@ -186,23 +161,32 @@ def _generate_one(args):
 
 
 class RMDataset(Dataset):
+    """Dataset producing input phase maps, output phase maps, and synthetic objects.
+
+    Returns:
+        Tuple[torch.Tensor, torch.Tensor, torch.Tensor]: (ab_in, ab_out, obj)
+        all as complex tensors of shape (N, N).
+    """
+
     def __init__(
         self,
         N: int,
         size: int,
-        zern_n: int,
+        zern_n: int = 5,
         seed: int = 42,
         min_fibers: int = 5,
         max_fibers: int = 20,
         cache_objects: bool = True,
-        cache_path: str | None = None,
+        cache_path: Optional[str] = None,
         num_workers_build: int = 1,
+        aberration_generator: Optional[Callable[[], torch.Tensor]] = None,
     ):
         self.N = N
         self.size = size
         self.seed = seed
         self.cache_objects = cache_objects
 
+        # Setup Object Source
         if cache_objects:
             self._cached_objs = self._build_or_load_cache(
                 N, size, seed, min_fibers, max_fibers, cache_path, num_workers_build
@@ -210,13 +194,22 @@ class RMDataset(Dataset):
         else:
             self.obj_dataset = ObjDataset(N, size, seed, min_fibers, max_fibers)
 
-        ab_gen = ZernikeAberration(N, zern_n=zern_n)
-        self.coeff_count = ab_gen.num_coefficients
+        # Setup Aberration Generator Strategy
+        if aberration_generator is not None:
+            self.aberration_generator = aberration_generator
+        else:
+            self.aberration_generator = StandardZernikeGenerator(N // 2, zern_n=zern_n)
 
     @staticmethod
     def _build_or_load_cache(
-        N, size, seed, min_fibers, max_fibers, cache_path, num_workers_build
-    ):
+        N: int,
+        size: int,
+        seed: int,
+        min_fibers: int,
+        max_fibers: int,
+        cache_path: Optional[str],
+        num_workers_build: int,
+    ) -> torch.Tensor:
         if cache_path is not None and os.path.exists(cache_path):
             print(f"Loading cached objects from {cache_path}")
             return torch.load(cache_path)
@@ -224,8 +217,6 @@ class RMDataset(Dataset):
         if num_workers_build > 1:
             args = [(i, N, seed, min_fibers, max_fibers) for i in range(size)]
             objs_by_idx = {}
-            # "spawn", not the platform default -- see module docstring for
-            # why plain fork() is unsafe here.
             ctx = mp.get_context("spawn")
             with ctx.Pool(num_workers_build) as pool:
                 for idx, obj in tqdm(
@@ -251,18 +242,16 @@ class RMDataset(Dataset):
 
         return cached
 
-    def __len__(self):
+    def __len__(self) -> int:
         return self.size
 
-    def __getitem__(self, idx: int):
+    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         obj = self._cached_objs[idx] if self.cache_objects else self.obj_dataset[idx]
 
-        # Coefficients are intentionally re-sampled every fetch (not tied to
-        # idx), so they're left on torch's global RNG -- cheap, and each
-        # DataLoader worker gets its own seeded RNG stream automatically.
-        c_in = torch.rand(self.coeff_count) * 2 - 1
-        c_out = torch.rand(self.coeff_count) * 2 - 1
-        c_in[0] = 0.0
-        c_out[0] = 0.0
+        # Generate complex phase maps directly
+        ab_in = self.aberration_generator()
+        ab_out = self.aberration_generator()
 
-        return c_in, c_out, obj
+        print(ab_in.shape, ab_out.shape, obj.shape)
+
+        return ab_in, ab_out, obj
