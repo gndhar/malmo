@@ -22,17 +22,27 @@ Changes vs. the original:
       between runs (Colab) -- point this at a mounted Google Drive path to
       avoid repaying the build cost every session.
     * num_workers_build (default 1): if >1, builds the cache in parallel
-      via multiprocessing.Pool. Only helps when generation itself is slow
+      via a multiprocessing Pool. Only helps when generation itself is slow
       enough to be worth the process-pool overhead (large N); Colab typically
       only gives you 2 vCPUs so don't expect more than ~2x from this.
+      Uses the "spawn" start method rather than the platform default
+      ("fork" on Linux) deliberately: any torch op run in the main process
+      (e.g. the `torch.stack` below, or -- in a notebook -- ipykernel's own
+      background threads) can leave live background threads holding
+      internal locks. `fork()` only duplicates the calling thread, so a
+      forked worker can inherit one of those locks already held and
+      permanently stuck, deadlocking the first torch op it tries to run.
+      "spawn" starts each worker as a fresh interpreter instead, which
+      sidesteps this entirely at the cost of slightly slower worker
+      startup (negligible here).
   Coefficients (c_in/c_out) are never cached -- they're intentionally
   re-sampled every fetch, and that's cheap regardless of N.
 """
 
 import math
+import multiprocessing as mp
 import os
 import random
-from multiprocessing import Pool
 
 import torch
 from torch.utils.data import Dataset
@@ -214,7 +224,10 @@ class RMDataset(Dataset):
         if num_workers_build > 1:
             args = [(i, N, seed, min_fibers, max_fibers) for i in range(size)]
             objs_by_idx = {}
-            with Pool(num_workers_build) as pool:
+            # "spawn", not the platform default -- see module docstring for
+            # why plain fork() is unsafe here.
+            ctx = mp.get_context("spawn")
+            with ctx.Pool(num_workers_build) as pool:
                 for idx, obj in tqdm(
                     pool.imap_unordered(_generate_one, args, chunksize=8),
                     total=size,
