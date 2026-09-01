@@ -240,7 +240,10 @@ class DualBranchPhaseNet(nn.Module):
         p_pred = self.head_p(F1_updated)
         q_pred = self.head_q(F2_updated)
 
-        o_pred = self.head_o(F1_updated, F2_updated)
+        # o_pred = self.head_o(F1_updated, F2_updated)
+        o_pred = torch.zeros(
+            (R.shape[0], 2 * self.N - 1, 2 * self.N - 1), device=R.device, dtype=R.dtype
+        )
 
         return p_pred, q_pred, o_pred
 
