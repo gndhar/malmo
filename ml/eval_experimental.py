@@ -161,19 +161,19 @@ def main():
     parser.add_argument(
         "--data_dir",
         type=str,
-        default="~/malmo/ml/data/data32",
+        default="data/data32",
         help="Directory with input .mat files",
     )
     parser.add_argument(
         "--checkpoint",
         type=str,
-        default="~/malmo/ml/checkpoint/dual_branch_phasenet_best.pth",
+        default="checkpoint/dual_branch_phasenet_best.pth",
         help="Path to .pth checkpoint file",
     )
     parser.add_argument(
         "--out_dir",
         type=str,
-        default="~/malmo/ml/data/results32",
+        default="results/results32",
         help="Directory to save output files",
     )
     parser.add_argument(
