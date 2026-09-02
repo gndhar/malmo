@@ -13,28 +13,40 @@ source .venv/bin/activate
 export OMP_NUM_THREADS=$NCPUS
 # malmo/ml should contain data_gen.py, zern.py, forward.py, rm.py,
 # dual_branch_phasenet.py, and this train.py.
-cd $PBS_O_WORKDIR/malmo/ml
+cd $PBS_O_WORKDIR
 # --- start GPU utilization logging in the background ---
 nvidia-smi --query-gpu=timestamp,utilization.gpu,utilization.memory,memory.used,memory.total,power.draw,temperature.gpu \
     --format=csv -l 5 > gpu_util.csv &
 MONITOR_PID=$!
-# --load_ckpt options: "none" (scratch), "latest" (resume), "best" (fine-tune)
+# Fine-tuning from checkpoint/grf_1/best.pth (weights only — fresh
+# optimizer/scheduler/epoch counter, since we're switching to a noise-
+# augmented training regime rather than resuming the grf_1 run) with
+# random Rk noise injection enabled for sim-to-real robustness.
 python train.py \
     --N 32 \
-    --zern_n 5 \
+    --zern_n 8 \
     --num_workers 8 \
-    --epochs 100 \
-    --batch_size 16 \
-    --lr 4e-4 \
+    --epochs 200 \
+    --batch_size 64 \
+    --lr 1e-3 \
     --scheduler plateau \
     --plateau_factor 0.5 \
     --plateau_patience 5 \
-    --eta_min 1e-6 \
-    --load_ckpt none \
+    --eta_min 1e-7 \
+    --load_ckpt_path ./checkpoint/grf_1/best.pth \
+    --weights_only \
     --train_size 4096 \
     --val_size 1024 \
     --checkpoint_dir ~/malmo/ml/checkpoint \
     --cache_dir ~/malmo/ml/cache \
-    --log_dir ~/malmo/ml/runs
+    --log_dir ~/malmo/ml/runs \
+    --run_name grf_1_noise \
+    --train_noise \
+    --snr_min -20 \
+    --snr_max 30 \
+    --clean_prob 0.1 \
+    --noise_warmup_epochs 10 \
+    --val_snr_bins "30,20,10,0,-10,-20" \
+    --val_snr_every 5
 # --- stop GPU logging once training is done ---
 kill $MONITOR_PID

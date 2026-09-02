@@ -12,7 +12,7 @@ import os
 import sys
 import traceback
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import matplotlib
 
@@ -129,6 +129,60 @@ def parse_args() -> argparse.Namespace:
         "--alpha_kernel", type=float, default=0.0, help="Kernel loss term weight."
     )
 
+    # Rk Noise Injection (sim-to-real robustness)
+    p.add_argument(
+        "--train_noise",
+        action="store_true",
+        help="Enable random complex AWGN injection on Rk during training, "
+        "with a fresh per-sample SNR drawn each batch from "
+        "[--snr_min, --snr_max] (plus a --clean_prob chance of no noise). "
+        "Off by default so existing invocations are unaffected.",
+    )
+    p.add_argument(
+        "--snr_min",
+        type=float,
+        default=0.0,
+        help="Minimum SNR (dB) for random noise injection during training "
+        "(only used when --train_noise is set).",
+    )
+    p.add_argument(
+        "--snr_max",
+        type=float,
+        default=30.0,
+        help="Maximum SNR (dB) for random noise injection during training "
+        "(only used when --train_noise is set).",
+    )
+    p.add_argument(
+        "--clean_prob",
+        type=float,
+        default=0.1,
+        help="Probability a training sample is left noise-free (SNR=inf) "
+        "even when --train_noise is set, so the model doesn't lose its "
+        "ability to exploit high-SNR signal.",
+    )
+    p.add_argument(
+        "--noise_warmup_epochs",
+        type=int,
+        default=0,
+        help="Number of initial epochs trained noise-free before "
+        "--train_noise kicks in (curriculum warmup).",
+    )
+    p.add_argument(
+        "--val_snr_bins",
+        type=str,
+        default="20,10,0",
+        help="Comma-separated extra SNR values (dB) for periodic noisy "
+        "validation tracking, logged separately from the main (clean) "
+        "val loss used for checkpointing/scheduling. 'inf' is accepted. "
+        "Pass an empty string to disable.",
+    )
+    p.add_argument(
+        "--val_snr_every",
+        type=int,
+        default=5,
+        help="Run the extra noisy-validation SNR bins every N epochs.",
+    )
+
     # Environment & Execution Controls
     p.add_argument("--seed", type=int, default=42, help="Training random seed.")
     p.add_argument("--val_seed", type=int, default=420, help="Validation random seed.")
@@ -177,6 +231,14 @@ def resolve_num_workers(requested: int) -> int:
             except ValueError:
                 pass
     return max(1, os.cpu_count() or 1)
+
+
+def parse_snr_bins(raw: str) -> List[float]:
+    """Parses a comma-separated SNR list (dB), accepting 'inf'. Empty string -> []."""
+    raw = raw.strip()
+    if not raw:
+        return []
+    return [float(tok.strip()) for tok in raw.split(",") if tok.strip()]
 
 
 # --------------------------------------------------------------------------- #
@@ -356,10 +418,46 @@ def plot_comparison(
 
 
 # --------------------------------------------------------------------------- #
+# Rk Noise Injection Helpers
+# --------------------------------------------------------------------------- #
+def sample_snr_db(
+    batch_size: int,
+    snr_min: float,
+    snr_max: float,
+    clean_prob: float,
+    device: torch.device,
+) -> torch.Tensor:
+    """Draws one SNR (dB) per sample, uniform in [snr_min, snr_max], with
+    `clean_prob` probability of being float('inf') (i.e. noise-free)."""
+    snr = torch.empty(batch_size, 1, 1, device=device).uniform_(snr_min, snr_max)
+    if clean_prob > 0:
+        clean_mask = torch.rand(batch_size, 1, 1, device=device) < clean_prob
+        snr = torch.where(clean_mask, torch.full_like(snr, float("inf")), snr)
+    return snr
+
+
+def add_complex_noise(Rk: torch.Tensor, snr_db: torch.Tensor) -> torch.Tensor:
+    """Adds complex AWGN to Rk to match a per-sample target SNR (dB).
+
+    snr_db is broadcastable against Rk's leading batch dim, e.g. shape
+    (B, 1, 1). Entries equal to float('inf') naturally add zero noise
+    (10**(inf/10) == inf -> noise_power == 0), so no special-casing needed.
+    """
+    sig_power = torch.mean(torch.abs(Rk) ** 2, dim=(-2, -1), keepdim=True)
+    snr_linear = 10.0 ** (snr_db / 10.0)
+    noise_power = sig_power / snr_linear
+    noise_std = torch.sqrt(noise_power / 2.0)
+    noise_real = torch.randn_like(Rk.real) * noise_std
+    noise_imag = torch.randn_like(Rk.imag) * noise_std
+    return Rk + torch.complex(noise_real, noise_imag)
+
+
+# --------------------------------------------------------------------------- #
 # Main Execution Pipeline
 # --------------------------------------------------------------------------- #
 def main() -> None:
     args = parse_args()
+    val_snr_bins = parse_snr_bins(args.val_snr_bins)
 
     # Dynamic package import path injection
     sys.path.insert(0, args.repo_root)
@@ -391,6 +489,17 @@ def main() -> None:
     logger.info(f"Run name: {run_name}")
     logger.info(f"Checkpoints directory: {run_ckpt_dir}")
     logger.info(f"Logging to console and: {run_dir / 'train.log'}")
+    if args.train_noise:
+        logger.info(
+            f"Rk noise injection: ENABLED | SNR range=[{args.snr_min}, {args.snr_max}] dB "
+            f"| clean_prob={args.clean_prob} | warmup_epochs={args.noise_warmup_epochs}"
+        )
+    else:
+        logger.info("Rk noise injection: disabled")
+    if val_snr_bins:
+        logger.info(
+            f"Noisy validation tracking: bins={val_snr_bins} dB, every {args.val_snr_every} epoch(s)"
+        )
 
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
@@ -466,6 +575,11 @@ def main() -> None:
         "epochs": args.epochs,
         "batch_size": args.batch_size,
         "scheduler": args.scheduler,
+        "train_noise": args.train_noise,
+        "snr_min": args.snr_min if args.train_noise else None,
+        "snr_max": args.snr_max if args.train_noise else None,
+        "clean_prob": args.clean_prob if args.train_noise else None,
+        "noise_warmup_epochs": args.noise_warmup_epochs if args.train_noise else None,
     }
 
     start_epoch = 0
@@ -507,7 +621,12 @@ def main() -> None:
     )
 
     # Execution Loop Helper
-    def run_epoch(dataloader: DataLoader, is_train: bool, epoch: int) -> float:
+    def run_epoch(
+        dataloader: DataLoader,
+        is_train: bool,
+        epoch: int,
+        inject_noise: bool = False,
+    ) -> float:
         model.train() if is_train else model.eval()
         total_loss = 0.0
 
@@ -520,6 +639,15 @@ def main() -> None:
                     Rk = get_Rk_batched(
                         k_in=simulation.k_in_cropped, k_outs=k_outs, N=N
                     )
+                    if inject_noise:
+                        snr_db = sample_snr_db(
+                            Rk.shape[0],
+                            args.snr_min,
+                            args.snr_max,
+                            args.clean_prob,
+                            device,
+                        )
+                        Rk = add_complex_noise(Rk, snr_db)
                     p_target, q_target = center_crop(ab_in, N), center_crop(ab_out, N)
                     o_target = compute_object_kernel(obj)
 
@@ -540,20 +668,65 @@ def main() -> None:
         writer.add_scalar(f"Loss/{phase_label}", avg_loss, epoch)
         return avg_loss
 
+    # Fixed-SNR noisy validation, tracked separately from the main (clean)
+    # val loss so checkpoint selection / plateau scheduling stay unaffected.
+    def evaluate_at_snr(dataloader: DataLoader, snr_db_value: float) -> float:
+        model.eval()
+        total_loss = 0.0
+
+        with torch.no_grad():
+            for ab_in, ab_out, obj in dataloader:
+                ab_in, ab_out, obj = ab_in.to(device), ab_out.to(device), obj.to(device)
+
+                k_outs = simulation(ab_in, ab_out, obj)
+                Rk = get_Rk_batched(k_in=simulation.k_in_cropped, k_outs=k_outs, N=N)
+                snr_db = torch.full(
+                    (Rk.shape[0], 1, 1),
+                    snr_db_value,
+                    device=device,
+                    dtype=torch.float32,
+                )
+                Rk = add_complex_noise(Rk, snr_db)
+
+                p_target, q_target = center_crop(ab_in, N), center_crop(ab_out, N)
+                o_target = compute_object_kernel(obj)
+
+                p_pred, q_pred, o_pred = model(Rk)
+                loss = criterion(p_pred, q_pred, o_pred, p_target, q_target, o_target)
+                total_loss += loss.item()
+
+        return total_loss / len(dataloader)
+
     # Main Training Cycle
     logger.info("--- Starting Training ---")
     train_loss = val_loss = float("nan")
 
     for epoch in tqdm(range(start_epoch, args.epochs)):
         writer.add_scalar("LR/main", optimizer.param_groups[0]["lr"], epoch)
-        train_loss = run_epoch(train_loader, is_train=True, epoch=epoch)
+
+        noise_active = args.train_noise and epoch >= args.noise_warmup_epochs
+        train_loss = run_epoch(
+            train_loader, is_train=True, epoch=epoch, inject_noise=noise_active
+        )
         val_loss = run_epoch(val_loader, is_train=False, epoch=epoch)
 
         scheduler.step(val_loss) if scheduler_needs_metric else scheduler.step()
 
         logger.info(
             f"Epoch [{epoch + 1}/{args.epochs}] | Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f}"
+            + (" | noise: ON" if noise_active else "")
         )
+
+        # Periodic noisy-validation SNR bins (diagnostic only)
+        if val_snr_bins and (
+            (epoch + 1) % args.val_snr_every == 0 or epoch == args.epochs - 1
+        ):
+            for snr in val_snr_bins:
+                snr_val_loss = evaluate_at_snr(val_loader, snr)
+                label = "clean" if math_isinf(snr) else f"{snr:g}dB"
+                writer.add_scalar(f"Loss/val_snr_{label}", snr_val_loss, epoch)
+                logger.info(f"  Noisy val @ {label}: {snr_val_loss:.4f}")
+
         writer.flush()
 
         # Save Best Model
@@ -654,6 +827,10 @@ def main() -> None:
         run_ckpt_dir / "eval_q_comparison.png",
     )
     logger.info(f"Saved evaluation plots to {run_ckpt_dir}")
+
+
+def math_isinf(x: float) -> bool:
+    return x == float("inf") or x == float("-inf")
 
 
 if __name__ == "__main__":
